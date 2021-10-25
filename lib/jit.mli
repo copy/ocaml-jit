@@ -14,11 +14,9 @@
  *
  *)
 
-val init_top : unit -> unit
-
 module Globals = Globals
 module Symbols = Symbols
 module Address = Address
 
-(** Register the JIT so that the native toplevel uses it instead of
-    the regular toolchain *)
+val with_jit_x86 : (unit -> 'a) -> string -> Topcommon.evaluation_outcome option ref -> 'a
+(** TODO *)

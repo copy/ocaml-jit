@@ -20,8 +20,6 @@ module Globals = Globals
 module Symbols = Symbols
 module Address = Address
 
-let outcome_global : Topcommon.evaluation_outcome option ref = ref None
-
 (** Assemble each section using X86_emitter. Empty sections are filtered *)
 let binary_section_map ~arch section_map =
   String.Map.filter_map section_map ~f:(fun name instructions ->
@@ -182,65 +180,8 @@ let jit_load_x86 phrase_name ~outcome_ref asm_program _filename =
   let result = jit_run entry_points in
   outcome_ref := Some result
 
-let set_debug () =
-  match Sys.getenv_opt "OCAML_JIT_DEBUG" with
-  | Some ("true" | "1") -> Globals.debug := true
-  | None | Some _ -> Globals.debug := false
-
-let with_jit_x86 f phrase_name =
+let with_jit_x86 f phrase_name outcome_ref =
   (* X86_proc.with_internal_assembler *)
     (* (jit_load_x86 phrase_name ~outcome_ref:outcome_global) f *)
-  X86_proc.register_internal_assembler (jit_load_x86 phrase_name ~outcome_ref:outcome_global);
+  X86_proc.register_internal_assembler (jit_load_x86 phrase_name ~outcome_ref);
   f ()
-
-(* Copied from opttoploop.ml *)
-module Backend = struct
-  let symbol_for_global' = Compilenv.symbol_for_global'
-
-  let closure_symbol = Compilenv.closure_symbol
-
-  let really_import_approx = Import_approx.really_import_approx
-
-  let import_symbol = Import_approx.import_symbol
-
-  let size_int = Arch.size_int
-
-  let big_endian = Arch.big_endian
-
-  let max_sensible_number_of_arguments =
-    (* The "-1" is to allow for a potential closure environment parameter. *)
-    Proc.max_arguments_for_tailcalls - 1
-end
-
-let backend = (module Backend : Backend_intf.S)
-
-let jit_load_body ppf phrase_name program =
-  let open Config in
-  let dll =
-    if !Clflags.keep_asm_file then phrase_name ^ ext_dll
-    else Filename.temp_file ("caml" ^ phrase_name) ext_dll
-  in
-  let filename = Filename.chop_extension dll in
-  let middle_end =
-    if Config.flambda then Flambda_middle_end.lambda_to_clambda
-    else Closure_middle_end.lambda_to_clambda
-  in
-  Asmgen.compile_implementation ~toplevel:Tophooks.need_symbol ~backend
-    ~prefixname:filename ~middle_end ~ppf_dump:ppf program;
-  match !outcome_global with
-  | None -> failwith "No evaluation outcome"
-  | Some res ->
-      outcome_global := None;
-      res
-
-let jit_load ppf phrase_name program =
-  with_jit_x86 (fun () -> jit_load_body ppf phrase_name program) phrase_name
-
-let jit_lookup_symbol symbol =
-  match Symbols.find !Globals.symbols symbol with
-  | None -> Tophooks.default_lookup symbol
-  | Some x -> Some (Address.to_obj x)
-
-let init_top () =
-  set_debug ();
-  Tophooks.register_assembler ~lookup:jit_lookup_symbol ~load:jit_load
